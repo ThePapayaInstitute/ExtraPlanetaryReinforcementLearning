@@ -1,0 +1,180 @@
+# imports
+import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
+import math as math
+import time
+from google.colab import drive
+folderLoc = 'gdrive/MyDrive/TimothyRousseauResearch/'
+drive.mount('/content/gdrive/', force_remount=True)
+import os
+
+
+# Functions
+
+# this code creates the gravity field for the simulation
+def GravityMaker(dim, planets):
+  Gfield = np.zeros((dim,dim,2))
+  for x in range(dim):
+    for y in range(dim):
+      for planet in planets:
+        dx = planet[0]-x
+        dy = planet[1]-y
+        u = (dx)**2+(dy)**2
+        vector = np.array([dx,dy])/(u**0.5)
+        Gfield[x,y] += vector/u
+
+
+  norms = np.zeros((dim,dim))
+  for x in range(dim):
+    for y in range(dim):
+        norms[x,y] = np.linalg.norm(Gfield[x,y])
+
+  return(Gfield)
+
+# this code creates the reward
+t0 = time.time()
+def reward(loc, dim):
+  goal = np.array([dim-2,dim-2])
+  distance = np.sum(np.square(loc - goal))
+  if (distance < 4):
+    return(10)
+  else:
+    return(0)
+
+# this code runs the initial random test runs
+NumSims = 2000
+def Simulations(NumSims, Gfield, dim):
+  dic = {'sx':[], 'sy':[], 'ax':[], 'ay':[], 'r':[], 'spx':[], 'spy':[]}
+  actions = [[0.1,0], [0,0.1], [-0.1,0], [0, -0.1], [0,0]]
+  acts = np.array((actions))
+
+  for j in range(NumSims):
+    particle0 = np.random.randint(1,dim//2,2)
+    v0 = np.random.randint(0,20,2)*0.05
+    particle, v, count = particle0, v0, 0
+    while (sum(particle < dim) == 2 and sum(particle > 0) == 2 and count < dim*2-2):
+      s = particle
+      particle = particle + v
+      sp = particle
+      gravpoint = (np.round(particle)).astype(int)
+      if (not(sum(gravpoint < dim) == 2 and sum(gravpoint > 0) == 2)):
+        break
+      a = Gfield[gravpoint[0], gravpoint[1]]
+      act = acts[np.random.randint(0,5)]
+      v = v + a + act
+      count+=1
+      r = reward(particle, dim)
+      dic['sx'].append(s[0])
+      dic['sy'].append(s[1])
+      dic['ax'].append(act[0])
+      dic['ay'].append(act[1])
+      dic['r'].append(r)
+      dic['spx'].append(sp[0])
+      dic['spy'].append(sp[1])
+    for u in 'sx sy ax ay r spx spy'.split(' '):
+      dic[u].append(-1)
+  return(dic)
+
+# this turns the data into a csv file
+
+def GetFile(Dic, NumSims, CsvFileName):
+  Df = pd.DataFrame(Dic)
+  Df.to_csv(CsvFileName)
+
+# this is the Q learning algorithm that reads the data and analyizes the best action to take
+def QFx(CsvFileName, runs):
+  Q = np.zeros((dim*10,dim*10,5))
+  Df2 = pd.read_csv(CsvFileName)
+  alpha = 0.9
+  gamma = 0.9
+  t0 = time.time()
+  for n in range(runs):
+    for i in range(1,len(Df2)):
+      d = {}
+      d2 = {}
+      for key in 'sx sy ax ay r spx spy'.split(' '):
+        d2[key] = Df2[key][i]
+        d[key] = Df2[key][i-1]
+      if d2['sx'] == d['spx'] and d2['sy'] == d['spy']:
+        actindex = actions.index([d['ax'],d['ay']])
+        locx = np.round(d['sx']*10).astype(int)
+        locy = np.round(d['sy']*10).astype(int)
+        loc2x = np.round(d2['spx']*10).astype(int)
+        loc2y = np.round(d2['spy']*10).astype(int)
+        Q[locx,locy,actindex] += alpha * (d2['r'] + gamma * np.max(Q[loc2x,loc2y]) - Q[locx,locy,actindex])
+  return(Q)
+
+# this code runs the simulation again based on the Q learning
+def EvaluationFx(Q, dim, Runs, Gfield, Acts):
+  History = {'sx':[], 'sy': [], 'ax': [], 'ay':[], 'r': [], 'spx': [],'spy':[]}
+  for j in range(Runs):
+    particle0 = np.random.randint(1,dim//2,2)
+    v0 = np.random.randint(0,20,2)*0.05
+    particle, v, count = particle0, v0, 0
+    while (sum(particle < dim) == 2 and sum(particle > 0) == 2 and count < dim*2-2):
+        particle = particle + v
+        sp = particle
+        gravpoint = (np.round(particle)).astype(int)
+        if (not(sum(gravpoint < dim) == 2 and sum(gravpoint > 0) == 2)):
+          break
+        History['sx'].append(particle[0])
+        History['sy'].append(particle[1])
+        actionIndex = np.argmax(Q[(particle[0]*10).astype(int), (particle[1]*10).astype(int)])
+        act = acts[actionIndex]
+        History['ax'].append(act[0])
+        History['ay'].append(act[1])
+        History['spx'].append(sp[0])
+        History['spy'].append(sp[1])
+        History['r'].append(reward(particle,dim))
+        a = Gfield[gravpoint[0], gravpoint[1]]
+        v = v + a + act
+
+        count+=1
+    for u in 'sx sy ax ay r spx spy'.split(' '):
+        History[u].append(-1)
+  return(History)
+
+# Testing Algorithm
+
+def MultipleTraining(NumSims, qruns, dim, CsvFileName):
+  for i in range(5):
+
+    TestAmount = NumSims
+    Dic = Simulations(NumSims, Gfield, dim)
+    AvgReward = (np.sum(Dic['r']) + NumSims)/NumSims
+    GetFile(Dic,NumSims,CsvFileName)
+    for j in range(5):
+      Q2 = QFx(CsvFileName, qruns)
+      OriginalHistory = EvaluationFx(Q2, dim, TestAmount, Gfield, acts)
+      GetFile(OriginalHistory, NumSims, CsvFileName)
+      NewAvgReward = (np.sum(OriginalHistory['r']) + TestAmount)/TestAmount
+      ResultsList.append([AvgReward, NewAvgReward])
+
+  r = np.array(ResultsList)
+
+  Dff = pd.DataFrame(ResultsList)
+  Dff.to_csv(folderLoc + FolderName)
+
+  return np.mean((r[:,1]-r[:,0])/r[:,0])
+
+# Data Collecting Algorithm
+
+for p in range(10):
+  planets = [np.random.randint(dim//4,dim*3//4,2)+np.random.randn(2)*.1, np.random.randint(dim//4,dim*3//4,2)+np.random.randn(2)*.1]
+  Gfield = GravityMaker(dim, planets)
+  print(planets)
+
+  for x in range(0,4):
+    for y in range(5):
+      NumSims = 500*(2**x)
+      qruns = 2
+      ResultsList = []
+      FolderName = str(x) + 'ResultsList' + str(NumSims) + '_' + str(qruns) + '_' + str(dim) + '.csv'
+
+      CsvFileName = '0807_'+ str(NumSims) + str(qruns) + str(dim) + 'simulations.csv'
+      actions = [[0.1,0], [0,0.1], [-0.1,0], [0, -0.1], [0,0]]
+      acts = np.array((actions))
+      Result = MultipleTraining(NumSims, qruns, dim, CsvFileName)
+      print('Numsims is', NumSims, 'Result:', Result)
+
