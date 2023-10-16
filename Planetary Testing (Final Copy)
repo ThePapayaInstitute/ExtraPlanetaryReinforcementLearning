@@ -178,3 +178,36 @@ for p in range(10):
       Result = MultipleTraining(NumSims, qruns, dim, CsvFileName)
       print('Numsims is', NumSims, 'Result:', Result)
 
+# Code to draw Figure Y: Planetary locations and learning algorithm performance
+def getCoord(info): 
+  location = info[0][0].strip('[]').split(', ')
+  location2 = info[0][2].strip('[]').split(', ')
+  x = float(location[0])
+  y = float(location[1])
+  x2 = float(location2[0])
+  y2 = float(location2[1])
+  return list([x,y,x2,y2])
+
+def getMaxValue(info):
+  valueArray = np.asarray(info[0]).astype(float)
+  return(np.max(valueArray))
+
+PlanetLoc = []
+for i in range(20):
+  PlanetLoc.append(getCoord(data[i*10:i*10+1].values) + [getMaxValue(data[i*10+7:i*10+8].values)])
+
+PlanetList = np.array(PlanetLoc)
+MaxR = np.max(PlanetList[:,4])
+MinR = np.min(PlanetList[:,4])
+for i in PlanetList: 
+  Score = (i[4] - MinR)/(MaxR - MinR)
+  plt.scatter(i[0], i[1], color = 'green', alpha = Score, s = 60)
+  plt.scatter(i[2], i[3], color = 'green', alpha = Score, s = 60)
+  plt.xlim(3,12)
+  plt.ylim(3,12)
+  plt.ylabel(ylabel = 'y')
+  plt.xlabel(xlabel = 'x')
+
+  # dark green top score, lighter is low score
+
+
